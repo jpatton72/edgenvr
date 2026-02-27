@@ -1,0 +1,127 @@
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+import cv2
+import numpy as np
+import threading
+import io
+
+from app.models.database import Camera, get_db
+from app.core.security import get_security_manager
+
+router = APIRouter(prefix="/api/streams", tags=["streams"])
+security = get_security_manager()
+
+# MJPEG frame cache
+frame_cache = {}
+cache_lock = threading.Lock()
+
+
+def generate_mjpeg(camera_id: str, db: Session):
+    """Generate MJPEG stream for camera."""
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        return
+    
+    # Build stream URL
+    stream_url = camera.rtsp_url
+    if not stream_url and camera.address:
+        username = security.decrypt(camera.username) if camera.username else ""
+        password = security.decrypt(camera.password) if camera.password else ""
+        from app.services.camera_manager import RTSPHandler
+        rtsp = RTSPHandler()
+        stream_url = rtsp.build_url(
+            camera.address,
+            camera.port or 554,
+            username,
+            password
+        )
+    
+    if not stream_url:
+        return
+    
+    cap = cv2.VideoCapture(stream_url)
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            cap = cv2.VideoCapture(stream_url)
+            continue
+        
+        # Cache latest frame
+        with cache_lock:
+            frame_cache[camera_id] = frame.copy()
+        
+        # Encode as JPEG
+        ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if not ret:
+            continue
+        
+        frame_bytes = jpeg.tobytes()
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+    
+    cap.release()
+
+
+@router.get("/cameras/{camera_id}/stream")
+def stream_camera(camera_id: str, db: Session = Depends(get_db)):
+    """Get MJPEG live stream for camera."""
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    return StreamingResponse(
+        generate_mjpeg(camera_id, db),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+
+@router.get("/cameras/{camera_id}/snapshot")
+def snapshot_camera(camera_id: str, db: Session = Depends(get_db)):
+    """Get single snapshot from camera."""
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    # Try to get cached frame first
+    with cache_lock:
+        if camera_id in frame_cache:
+            frame = frame_cache[camera_id]
+        else:
+            frame = None
+    
+    if frame is None:
+        # Capture new frame
+        stream_url = camera.rtsp_url
+        if not stream_url and camera.address:
+            username = security.decrypt(camera.username) if camera.username else ""
+            password = security.decrypt(camera.password) if camera.password else ""
+            from app.services.camera_manager import RTSPHandler
+            rtsp = RTSPHandler()
+            stream_url = rtsp.build_url(
+                camera.address,
+                camera.port or 554,
+                username,
+                password
+            )
+        
+        if not stream_url:
+            raise HTTPException(status_code=500, detail="No stream URL")
+        
+        cap = cv2.VideoCapture(stream_url)
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret or frame is None:
+            raise HTTPException(status_code=500, detail="Failed to capture frame")
+    
+    ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    if not ret:
+        raise HTTPException(status_code=500, detail="Failed to encode frame")
+    
+    return StreamingResponse(
+        io.BytesIO(jpeg.tobytes()),
+        media_type="image/jpeg"
+    )
