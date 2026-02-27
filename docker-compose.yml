@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./data:/data
+      - edgenvr-data:/data
       - /dev:/dev
     environment:
       - HOST=0.0.0.0
@@ -28,6 +28,9 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8080
     restart: unless-stopped
+
+volumes:
+  edgenvr-data:
 
 networks:
   default:
