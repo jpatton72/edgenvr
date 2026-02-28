@@ -131,9 +131,16 @@ class CameraManager:
                    password: str = None, rtsp_url: str = None) -> bool:
         """Test camera connection."""
         if camera_type == "RTSP" and rtsp_url:
-            return self.rtsp.test_connection(rtsp_url_url)
+            return self.rtsp.test_connection(rtsp_url)
         elif camera_type == "USB":
-            return os.path.exists(address)
+            # Actually try to open the V4L2 device
+            import cv2
+            cap = cv2.VideoCapture(address)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
+                return ret
+            return False
         elif camera_type == "ONVIF":
             # Simplified ONVIF test - try to open as video device or RTSP
             return self.rtsp.test_connection(f"rtsp://{address}/stream")

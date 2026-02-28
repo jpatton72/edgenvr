@@ -75,17 +75,27 @@ async def startup():
     try:
         cameras = db.query(Camera).filter(Camera.enabled == True).all()
         for camera in cameras:
-            if camera.rtsp_url:
-                recorder_manager.add_camera(camera.id, camera.rtsp_url)
+            # Get stream URL based on camera type
+            if camera.type == "USB":
+                stream_url = camera.address  # e.g., /dev/video0
+            else:
+                stream_url = camera.rtsp_url
+            
+            if stream_url:
+                # Start recorder
+                recorder_manager.add_camera(camera.id, stream_url)
+                
+                # Load zones and start analytics
                 zones = db.query(Zone).filter(
                     Zone.camera_id == camera.id,
                     Zone.enabled == True
                 ).all()
                 analytics_engine.start_camera(
                     camera.id,
-                    camera.rtsp_url,
+                    stream_url,
                     [{"polygon": z.polygon, "enabled": z.enabled} for z in zones]
                 )
+                print(f"Started analytics for camera {camera.name} ({camera.type}): {stream_url}")
     finally:
         db.close()
 

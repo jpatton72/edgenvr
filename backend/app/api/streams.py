@@ -5,9 +5,11 @@ import cv2
 import numpy as np
 import threading
 import io
+import time
 
 from app.models.database import Camera, get_db
 from app.core.security import get_security_manager
+from app.services.recorder import recorder_manager
 
 router = APIRouter(prefix="/api/streams", tags=["streams"])
 security = get_security_manager()
@@ -23,29 +25,32 @@ def generate_mjpeg(camera_id: str, db: Session):
     if not camera:
         return
     
-    # Build stream URL
-    stream_url = camera.rtsp_url
-    if not stream_url and camera.address:
-        username = security.decrypt(camera.username) if camera.username else ""
-        password = security.decrypt(camera.password) if camera.password else ""
-        from app.services.camera_manager import RTSPHandler
-        rtsp = RTSPHandler()
-        stream_url = rtsp.build_url(
-            camera.address,
-            camera.port or 554,
-            username,
-            password
-        )
-    
-    if not stream_url:
-        return
-    
-    cap = cv2.VideoCapture(stream_url)
-    
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            cap = cv2.VideoCapture(stream_url)
+        # Use shared recorder to get frames
+        ret, frame = recorder_manager.get_frame(camera_id)
+        
+        if not ret or frame is None:
+            # Fallback: try opening directly
+            stream_url = camera.address if camera.type == "USB" else camera.rtsp_url
+            if not stream_url and camera.address:
+                username = security.decrypt(camera.username) if camera.username else ""
+                password = security.decrypt(camera.password) if camera.password else ""
+                from app.services.camera_manager import RTSPHandler
+                rtsp = RTSPHandler()
+                stream_url = rtsp.build_url(
+                    camera.address,
+                    camera.port or 554,
+                    username,
+                    password
+                )
+            
+            if stream_url:
+                cap = cv2.VideoCapture(stream_url)
+                ret, frame = cap.read()
+                cap.release()
+        
+        if not ret or frame is None:
+            time.sleep(1)
             continue
         
         # Cache latest frame
@@ -61,8 +66,6 @@ def generate_mjpeg(camera_id: str, db: Session):
         
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-    
-    cap.release()
 
 
 @router.get("/cameras/{camera_id}/stream")
@@ -89,23 +92,33 @@ def snapshot_camera(camera_id: str, db: Session = Depends(get_db)):
     with cache_lock:
         if camera_id in frame_cache:
             frame = frame_cache[camera_id]
-        else:
-            frame = None
+            ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ret:
+                return StreamingResponse(
+                    io.BytesIO(jpeg.tobytes()),
+                    media_type="image/jpeg"
+                )
     
-    if frame is None:
-        # Capture new frame
-        stream_url = camera.rtsp_url
-        if not stream_url and camera.address:
-            username = security.decrypt(camera.username) if camera.username else ""
-            password = security.decrypt(camera.password) if camera.password else ""
-            from app.services.camera_manager import RTSPHandler
-            rtsp = RTSPHandler()
-            stream_url = rtsp.build_url(
-                camera.address,
-                camera.port or 554,
-                username,
-                password
-            )
+    # Use shared recorder
+    ret, frame = recorder_manager.get_frame(camera_id)
+    
+    if not ret or frame is None:
+        # Fallback: open directly
+        if camera.type == "USB":
+            stream_url = camera.address
+        else:
+            stream_url = camera.rtsp_url
+            if not stream_url and camera.address:
+                username = security.decrypt(camera.username) if camera.username else ""
+                password = security.decrypt(camera.password) if camera.password else ""
+                from app.services.camera_manager import RTSPHandler
+                rtsp = RTSPHandler()
+                stream_url = rtsp.build_url(
+                    camera.address,
+                    camera.port or 554,
+                    username,
+                    password
+                )
         
         if not stream_url:
             raise HTTPException(status_code=500, detail="No stream URL")
@@ -113,9 +126,9 @@ def snapshot_camera(camera_id: str, db: Session = Depends(get_db)):
         cap = cv2.VideoCapture(stream_url)
         ret, frame = cap.read()
         cap.release()
-        
-        if not ret or frame is None:
-            raise HTTPException(status_code=500, detail="Failed to capture frame")
+    
+    if not ret or frame is None:
+        raise HTTPException(status_code=500, detail="Failed to capture frame")
     
     ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
     if not ret:

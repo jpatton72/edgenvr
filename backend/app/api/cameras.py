@@ -72,18 +72,21 @@ def create_camera(camera: CameraCreate, db: Session = Depends(get_db)):
     enc_username = security.encrypt(camera.username) if camera.username else None
     enc_password = security.encrypt(camera.password) if camera.password else None
     
-    # Build stream URL
+    # Build stream URL based on camera type
     stream_url = camera.rtsp_url
-    if not stream_url and camera.type == "RTSP" and camera.address:
-        from app.services.camera_manager import RTSPHandler
-        rtsp = RTSPHandler()
-        stream_url = rtsp.build_url(
-            camera.address, 
-            camera.port or 554, 
-            camera.username or "", 
-            camera.password or "",
-            "/stream"
-        )
+    if not stream_url:
+        if camera.type == "USB":
+            stream_url = camera.address  # Use device path for USB
+        elif camera.type == "RTSP" and camera.address:
+            from app.services.camera_manager import RTSPHandler
+            rtsp = RTSPHandler()
+            stream_url = rtsp.build_url(
+                camera.address, 
+                camera.port or 554, 
+                camera.username or "", 
+                camera.password or "",
+                "/stream"
+            )
     
     db_camera = Camera(
         name=camera.name,
@@ -120,6 +123,50 @@ def get_camera(camera_id: str, db: Session = Depends(get_db)):
     return camera
 
 
+@router.put("/{camera_id}")
+def update_camera(camera_id: str, camera_data: dict, db: Session = Depends(get_db)):
+    """Update camera."""
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    # Update fields
+    if 'name' in camera_data:
+        camera.name = camera_data['name']
+    if 'address' in camera_data:
+        camera.address = camera_data['address']
+    if 'port' in camera_data:
+        camera.port = camera_data['port']
+    if 'enabled' in camera_data:
+        camera.enabled = camera_data['enabled']
+    
+    # Update credentials if provided
+    if camera_data.get('username'):
+        camera.username = security.encrypt(camera_data['username'])
+    if camera_data.get('password'):
+        camera.password = security.encrypt(camera_data['password'])
+    
+    # Rebuild stream URL if credentials changed
+    if camera.type == "RTSP" and camera.address:
+        from app.services.camera_manager import RTSPHandler
+        rtsp = RTSPHandler()
+        username = camera_data.get('username', '')
+        password = camera_data.get('password', '')
+        if username and password:
+            camera.rtsp_url = rtsp.build_url(
+                camera.address,
+                camera.port or 554,
+                username,
+                password,
+                "/stream"
+            )
+    
+    db.commit()
+    db.refresh(camera)
+    
+    return camera
+
+
 @router.delete("/{camera_id}")
 def delete_camera(camera_id: str, db: Session = Depends(get_db)):
     """Remove a camera."""
@@ -144,10 +191,16 @@ def test_camera(camera_id: str, db: Session = Depends(get_db)):
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
     
-    from app.services.camera_manager import RTSPHandler
+    from app.services.camera_manager import RTSPHandler, CameraManager
     rtsp = RTSPHandler()
+    manager = CameraManager()
     
-    # Decrypt credentials
+    # Handle USB cameras differently
+    if camera.type == "USB":
+        result = manager.test_camera(camera.type, camera.address)
+        return {"connected": result}
+    
+    # For RTSP/ONVIF, build URL
     username = security.decrypt(camera.username) if camera.username else ""
     password = security.decrypt(camera.password) if camera.password else ""
     
@@ -235,3 +288,33 @@ def delete_zone(zone_id: str, db: Session = Depends(get_db)):
     )
     
     return {"status": "deleted"}
+
+
+@router.patch("/zones/{zone_id}/toggle", response_model=ZoneResponse)
+def toggle_zone(zone_id: str, db: Session = Depends(get_db)):
+    """Toggle zone enabled/disabled."""
+    db_zone = db.query(Zone).filter(Zone.id == zone_id).first()
+    if not db_zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    
+    db_zone.enabled = not db_zone.enabled
+    db.commit()
+    db.refresh(db_zone)
+    
+    # Update analytics
+    zones = db.query(Zone).filter(Zone.camera_id == db_zone.camera_id, Zone.enabled == True).all()
+    analytics_engine.update_zones(
+        db_zone.camera_id,
+        [{"polygon": z.polygon, "enabled": z.enabled} for z in zones]
+    )
+    
+    return db_zone
+
+
+@router.get("/zones/{zone_id}", response_model=ZoneResponse)
+def get_zone(zone_id: str, db: Session = Depends(get_db)):
+    """Get a single zone by ID."""
+    db_zone = db.query(Zone).filter(Zone.id == zone_id).first()
+    if not db_zone:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    return db_zone

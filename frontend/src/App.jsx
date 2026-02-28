@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard'
 import Cameras from './pages/Cameras'
 import Playback from './pages/Playback'
 import Settings from './pages/Settings'
+import CameraDetail from './pages/CameraDetail'
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/playback" element={<Playback />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/camera/:id" element={<CameraDetail />} />
           </Routes>
         </main>
       </div>

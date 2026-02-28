@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCameras, useStream } from '../hooks/useApi'
 
 function CameraCard({ camera }) {
+  const navigate = useNavigate()
   const { snapshot, error } = useStream(camera.id)
 
   return (
-    <div className="camera-card">
+    <div className="camera-card" onClick={() => navigate(`/camera/${camera.id}`)}>
       <div className="camera-preview">
         {error ? (
           <div className="camera-error">Offline</div>
