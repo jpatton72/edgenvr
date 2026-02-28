@@ -171,7 +171,7 @@ class VideoRecorder:
                     continuous_writer.release()
                 current_date = date_str
                 output_path = os.path.join(self.recordings_dir, f"{date_str}.mp4")
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')
                 continuous_writer = cv2.VideoWriter(
                     output_path, fourcc, settings.CONTINUOUS_FPS,
                     (frame.shape[1], frame.shape[0])
@@ -204,7 +204,7 @@ class VideoRecorder:
             f"event_{timestamp.strftime('%Y%m%d_%H%M%S')}.mp4"
         )
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
         h, w = pre_buffer_frames[0].shape[:2] if pre_buffer_frames else (480, 640)
         writer = cv2.VideoWriter(output_path, fourcc, settings.EVENT_FPS, (w, h))
         
