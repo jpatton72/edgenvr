@@ -65,6 +65,40 @@ def list_cameras(db: Session = Depends(get_db)):
     return cameras
 
 
+@router.get("/status")
+def get_cameras_status(db: Session = Depends(get_db)):
+    """Get status of all cameras (online/offline)."""
+    cameras = db.query(Camera).all()
+    status_list = []
+    
+    for camera in cameras:
+        # Check if camera is accessible
+        is_online = False
+        try:
+            if camera.type == "USB":
+                # Check if device exists
+                import os
+                is_online = os.path.exists(camera.address)
+            elif camera.rtsp_url:
+                # Try to open RTSP stream briefly
+                import cv2
+                cap = cv2.VideoCapture(camera.rtsp_url)
+                is_online = cap.isOpened()
+                cap.release()
+        except Exception:
+            is_online = False
+        
+        status_list.append({
+            "id": camera.id,
+            "name": camera.name,
+            "type": camera.type,
+            "online": is_online,
+            "enabled": camera.enabled
+        })
+    
+    return status_list
+
+
 @router.post("", response_model=CameraResponse)
 def create_camera(camera: CameraCreate, db: Session = Depends(get_db)):
     """Add a new camera."""
