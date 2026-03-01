@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "change-me-in-production"
     
+    # Notifications
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    
     class Config:
         env_file = ".env"
 

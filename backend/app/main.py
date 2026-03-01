@@ -3,11 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 from app.api import cameras, recordings, streams
+from app.api import settings as settings_router
 from app.core.config import get_settings
 from app.services.recorder import recorder_manager
 from app.services.analytics import analytics_engine
+from app.services.notifications import notification_service
 
-settings = get_settings()
+app_settings = get_settings()
 
 app = FastAPI(
     title="EdgeNVR API",
@@ -31,15 +33,27 @@ def on_person_detected(camera_id: str, detection: dict):
     recorder_manager.trigger_event(camera_id)
     
     # Create event in database
-    from app.models.database import Event, SessionLocal
+    from app.models.database import Event, SessionLocal, Camera
     db = SessionLocal()
     try:
+        # Get camera name
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera_name = camera.name if camera else "Unknown"
+        
+        # Save event
         event = Event(
             camera_id=camera_id,
             type="person_detected"
         )
         db.add(event)
         db.commit()
+        
+        # Send Telegram notification
+        notification_service.person_detected(
+            camera_name=camera_name,
+            camera_id=camera_id,
+            confidence=detection.get("confidence")
+        )
     finally:
         db.close()
 
@@ -51,6 +65,7 @@ analytics_engine.on_person_detected = on_person_detected
 app.include_router(cameras.router)
 app.include_router(recordings.router)
 app.include_router(streams.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/api/health")
@@ -66,8 +81,8 @@ def health_check():
 @app.on_event("startup")
 async def startup():
     """Initialize on startup."""
-    os.makedirs(settings.RECORDINGS_PATH, exist_ok=True)
-    os.makedirs(settings.EVENTS_PATH, exist_ok=True)
+    os.makedirs(app_settings.RECORDINGS_PATH, exist_ok=True)
+    os.makedirs(app_settings.EVENTS_PATH, exist_ok=True)
     
     # Load existing cameras
     from app.models.database import Camera, SessionLocal, Zone
