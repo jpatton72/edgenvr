@@ -99,36 +99,16 @@ def snapshot_camera(camera_id: str, db: Session = Depends(get_db)):
                     media_type="image/jpeg"
                 )
     
-    # Use shared recorder
-    ret, frame = recorder_manager.get_frame(camera_id)
+    # Use shared recorder (avoid opening camera multiple times)
+    # The recorder already handles camera access - don't compete with it
+    for attempt in range(3):
+        ret, frame = recorder_manager.get_frame(camera_id)
+        if ret and frame is not None:
+            break
+        time.sleep(0.5)  # Wait for recorder to get frame
     
     if not ret or frame is None:
-        # Fallback: open directly
-        if camera.type == "USB":
-            stream_url = camera.address
-        else:
-            stream_url = camera.rtsp_url
-            if not stream_url and camera.address:
-                username = security.decrypt(camera.username) if camera.username else ""
-                password = security.decrypt(camera.password) if camera.password else ""
-                from app.services.camera_manager import RTSPHandler
-                rtsp = RTSPHandler()
-                stream_url = rtsp.build_url(
-                    camera.address,
-                    camera.port or 554,
-                    username,
-                    password
-                )
-        
-        if not stream_url:
-            raise HTTPException(status_code=500, detail="No stream URL")
-        
-        cap = cv2.VideoCapture(stream_url)
-        ret, frame = cap.read()
-        cap.release()
-    
-    if not ret or frame is None:
-        raise HTTPException(status_code=500, detail="Failed to capture frame")
+        raise HTTPException(status_code=500, detail="Camera not available - recorder may not be running")
     
     ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
     if not ret:

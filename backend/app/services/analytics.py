@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Callable
 from datetime import datetime
 
 from app.core.config import get_settings
+from app.services.recorder import recorder_manager
 
 settings = get_settings()
 
@@ -159,17 +160,16 @@ class AnalyticsEngine:
         print(f"Updated zones for camera {camera_id}: {len(zones)} zones")
     
     def _process_loop(self, camera_id: str, stream_url: str):
-        """Main analytics processing loop."""
+        """Main analytics processing loop - uses shared recorder capture."""
         print(f"Analytics loop starting for {camera_id} with URL: {stream_url}")
-        cap = cv2.VideoCapture(stream_url)
         frame_count = 0
         last_detection_time = 0
         
         while self.running_cameras.get(camera_id, False):
-            ret, frame = cap.read()
-            if not ret:
+            # Use shared recorder's frame capture instead of opening camera directly
+            ret, frame = recorder_manager.get_frame(camera_id)
+            if not ret or frame is None:
                 time.sleep(1)
-                cap = cv2.VideoCapture(stream_url)
                 continue
             
             # Process every Nth frame
@@ -216,7 +216,6 @@ class AnalyticsEngine:
             
             time.sleep(0.03)
         
-        cap.release()
         print(f"Analytics loop ended for {camera_id}")
 
 
