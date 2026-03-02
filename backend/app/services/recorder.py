@@ -265,7 +265,11 @@ class RecorderManager:
     def get_frame(self, camera_id: str):
         """Get current frame for camera."""
         if camera_id in self.recorders:
-            return self.recorders[camera_id].get_frame()
+            recorder = self.recorders[camera_id]
+            # Get fresh frame from camera_capture
+            if recorder.camera_capture:
+                return recorder.camera_capture.get_fresh_frame()
+            return False, None
         return False, None
 
 

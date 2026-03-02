@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 import threading
 import time
@@ -17,26 +16,29 @@ PERSON_CLASS_ID = 0
 class YOLOAnalytics:
     """Edge AI analytics using YOLO for person detection."""
     
-    def __init__(self, model_path: str = "yolo26n.pt"):
-        """Initialize YOLO model."""
+    def __init__(self, model_path: str = "yolov8n.pt"):
+        """Initialize YOLO model - using yolov8n for better person detection accuracy."""
         import os
         import urllib.request
         
-        # Download model if not exists
+        # Download model if not exists - use yolov8n (more accurate than yolo26n)
         if not os.path.exists(model_path):
-            print(f"Downloading YOLO26n model...")
-            # Try YOLO26n first, fall back to YOLOv8n
+            print(f"Downloading YOLOv8n model...")
             try:
-                url = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt"
+                url = "https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8n.pt"
                 urllib.request.urlretrieve(url, model_path)
-                print(f"YOLO26n model downloaded to {model_path}")
+                print(f"YOLOv8n model downloaded to {model_path}")
             except Exception as e:
-                print(f"YOLO26n download failed: {e}, trying YOLOv8n...")
-                model_path = "yolov8n.pt"
+                # Fallback to yolo26n if download fails
+                print(f"YOLOv8n download failed: {e}, trying YOLO26n...")
+                model_path = "yolo26n.pt"
                 if not os.path.exists(model_path):
-                    url = "https://github.com/ultralytics/assets/releases/download/v8.0.0/yolov8n.pt"
-                    urllib.request.urlretrieve(url, model_path)
-                    print(f"YOLOv8n model downloaded")
+                    try:
+                        url = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt"
+                        urllib.request.urlretrieve(url, model_path)
+                        print(f"YOLO26n model downloaded to {model_path}")
+                    except:
+                        print(f"Failed to download any YOLO model")
         
         try:
             from ultralytics import YOLO
@@ -58,18 +60,25 @@ class YOLOAnalytics:
             confidence = settings.DETECTION_THRESHOLD
         
         try:
-            results = self.model(frame, conf=confidence, verbose=False)
-            persons = []
+            # Remove class filter to see what YOLO detects
+            results = self.model.predict(frame, conf=0.2, verbose=False)
             
-            for result in results:
-                boxes = result.boxes
-                for box in boxes:
-                    if int(box.cls[0]) == PERSON_CLASS_ID:
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        persons.append({
-                            "bbox": [float(x1), float(y1), float(x2), float(y2)],
-                            "confidence": float(box.conf[0])
-                        })
+            if not results:
+                return []
+            
+            result = results[0]
+            boxes = result.boxes
+            
+            # Filter for persons (class 0)
+            persons = []
+            for box in boxes:
+                if int(box.cls[0]) == 0:  # person class
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    conf = float(box.conf[0])
+                    persons.append({
+                        "bbox": [float(x1), float(y1), float(x2), float(y2)],
+                        "confidence": conf
+                    })
             
             return persons
         except Exception as e:
@@ -161,16 +170,23 @@ class AnalyticsEngine:
     
     def _process_loop(self, camera_id: str, stream_url: str):
         """Main analytics processing loop - uses shared recorder capture."""
-        print(f"Analytics loop starting for {camera_id} with URL: {stream_url}")
         frame_count = 0
         last_detection_time = 0
         
         while self.running_cameras.get(camera_id, False):
-            # Use shared recorder's frame capture instead of opening camera directly
+            # Debug: log every ~30 frames to confirm loop is running
+            if frame_count % 30 == 0:
+            
+            # Use shared recorder's frame capture
             ret, frame = recorder_manager.get_frame(camera_id)
             if not ret or frame is None:
+                if frame_count % 30 == 0:
+                    print(f"Camera {camera_id}: No frame from recorder")
                 time.sleep(1)
                 continue
+            
+            # Debug: log frame info every 30 frames
+            if frame_count % 30 == 0:
             
             # Process every Nth frame
             frame_count += 1
@@ -178,8 +194,20 @@ class AnalyticsEngine:
                 time.sleep(0.03)
                 continue
             
-            # Detect persons
-            persons = self.yolo.detect_persons(frame)
+            # Debug: check if frame is valid
+            if frame is None or frame.size == 0:
+                print(f"Camera {camera_id}: WARNING - empty frame")
+                continue
+            
+            # Detect persons using the YOLOAnalytics instance
+            try:
+                # Use the YOLOAnalytics instance's detect_persons method
+                persons = self.yolo.detect_persons(frame)
+                # Debug: print what YOLO found
+                if frame_count % 30 == 0:
+            except Exception as e:
+                print(f"Camera {camera_id}: YOLO error: {e}")
+                continue
             
             if persons:
                 print(f"Camera {camera_id}: Detected {len(persons)} person(s)")
@@ -216,7 +244,6 @@ class AnalyticsEngine:
             
             time.sleep(0.03)
         
-        print(f"Analytics loop ended for {camera_id}")
 
 
 # Global instance

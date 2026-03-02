@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DATABASE_PATH: str = "/data/edgenvr.db"
     
     # Analytics
-    DETECTION_THRESHOLD: float = 0.5
+    DETECTION_THRESHOLD: float = 0.3  # Lowered for better detection
     DETECTION_INTERVAL: int = 5  # Process every Nth frame
     
     # Recording
