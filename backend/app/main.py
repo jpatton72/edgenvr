@@ -61,6 +61,34 @@ def on_person_detected(camera_id: str, detection: dict):
 analytics_engine.on_person_detected = on_person_detected
 
 
+def on_event_clip_ready(camera_id: str, clip_path: str, thumbnail_path: str):
+    """Update the most recent event for this camera with clip and thumbnail paths."""
+    from app.models.database import Event, SessionLocal
+    db = SessionLocal()
+    try:
+        event = (
+            db.query(Event)
+            .filter(Event.camera_id == camera_id, Event.clip_path.is_(None))
+            .order_by(Event.start_time.desc())
+            .first()
+        )
+        if event:
+            event.clip_path = clip_path
+            event.thumbnail_path = thumbnail_path
+            db.commit()
+            print(f"Event clip saved for camera {camera_id}: {clip_path}")
+        else:
+            print(f"Warning: No pending event found for camera {camera_id} clip")
+    except Exception as e:
+        print(f"Error saving event clip for camera {camera_id}: {e}")
+    finally:
+        db.close()
+
+
+# Set callback on manager so all recorders (current and future) get it
+recorder_manager.on_event_clip_ready = on_event_clip_ready
+
+
 # Include routers
 app.include_router(cameras.router)
 app.include_router(recordings.router)
@@ -99,7 +127,7 @@ async def startup():
             if stream_url:
                 # Start recorder
                 recorder_manager.add_camera(camera.id, stream_url)
-                
+
                 # Load zones and start analytics
                 zones = db.query(Zone).filter(
                     Zone.camera_id == camera.id,

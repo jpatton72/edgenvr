@@ -174,19 +174,11 @@ class AnalyticsEngine:
         last_detection_time = 0
         
         while self.running_cameras.get(camera_id, False):
-            # Debug: log every ~30 frames to confirm loop is running
-            if frame_count % 30 == 0:
-            
             # Use shared recorder's frame capture
             ret, frame = recorder_manager.get_frame(camera_id)
             if not ret or frame is None:
-                if frame_count % 30 == 0:
-                    print(f"Camera {camera_id}: No frame from recorder")
                 time.sleep(1)
                 continue
-            
-            # Debug: log frame info every 30 frames
-            if frame_count % 30 == 0:
             
             # Process every Nth frame
             frame_count += 1
@@ -194,23 +186,16 @@ class AnalyticsEngine:
                 time.sleep(0.03)
                 continue
             
-            # Debug: check if frame is valid
+            # Skip empty frames
             if frame is None or frame.size == 0:
-                print(f"Camera {camera_id}: WARNING - empty frame")
                 continue
             
-            # Detect persons using the YOLOAnalytics instance
+            # Detect persons
             try:
-                # Use the YOLOAnalytics instance's detect_persons method
                 persons = self.yolo.detect_persons(frame)
-                # Debug: print what YOLO found
-                if frame_count % 30 == 0:
             except Exception as e:
                 print(f"Camera {camera_id}: YOLO error: {e}")
                 continue
-            
-            if persons:
-                print(f"Camera {camera_id}: Detected {len(persons)} person(s)")
             
             # Get zones for this camera
             zones = self.enabled_zones.get(camera_id, [])
@@ -218,10 +203,9 @@ class AnalyticsEngine:
             # If no zones defined, detect persons anywhere in frame
             if not zones:
                 if persons and self.on_person_detected:
-                    # Rate limit: only trigger once per 10 seconds
                     current_time = time.time()
                     if current_time - last_detection_time > 10:
-                        print(f"Camera {camera_id}: Person detected (no zones configured)")
+                        print(f"Camera {camera_id}: Person detected")
                         self.on_person_detected(camera_id, persons[0])
                         last_detection_time = current_time
             else:
@@ -233,7 +217,6 @@ class AnalyticsEngine:
                                 person["bbox"], 
                                 zone["polygon"]
                             ):
-                                # Person in zone - trigger event
                                 current_time = time.time()
                                 if current_time - last_detection_time > 10:
                                     print(f"Camera {camera_id}: Person in zone!")
@@ -243,7 +226,6 @@ class AnalyticsEngine:
                                 break
             
             time.sleep(0.03)
-        
 
 
 # Global instance

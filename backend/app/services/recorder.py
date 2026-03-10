@@ -3,7 +3,7 @@ import os
 import time
 import threading
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 from collections import deque
 
 from app.core.config import get_settings
@@ -235,19 +235,26 @@ class VideoRecorder:
         
         # Callback for event created
         if self.on_event_ended:
-            self.on_event_ended(output_path, thumbnail_path)
+            try:
+                self.on_event_ended(output_path, thumbnail_path)
+            except Exception as e:
+                print(f"Error in on_event_ended callback: {e}")
 
 
 class RecorderManager:
     """Manage recorders for all cameras."""
-    
+
     def __init__(self):
         self.recorders: Dict[str, VideoRecorder] = {}
-    
+        self.on_event_clip_ready: Optional[callable] = None  # (camera_id, clip_path, thumbnail_path)
+
     def add_camera(self, camera_id: str, stream_url: str):
         """Add camera and start recording."""
         if camera_id not in self.recorders:
             recorder = VideoRecorder(camera_id, stream_url)
+            if self.on_event_clip_ready:
+                callback = self.on_event_clip_ready
+                recorder.on_event_ended = lambda clip, thumb: callback(camera_id, clip, thumb)
             recorder.start()
             self.recorders[camera_id] = recorder
     
