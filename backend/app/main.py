@@ -4,6 +4,7 @@ import os
 
 from app.api import cameras, recordings, streams
 from app.api import settings as settings_router
+from app.api import densepose as densepose_router
 from app.core.config import get_settings
 from app.services.recorder import recorder_manager
 from app.services.analytics import analytics_engine
@@ -94,6 +95,7 @@ app.include_router(cameras.router)
 app.include_router(recordings.router)
 app.include_router(streams.router)
 app.include_router(settings_router.router)
+app.include_router(densepose_router.router)
 
 
 @app.get("/api/health")

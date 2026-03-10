@@ -5,6 +5,7 @@ import Cameras from './pages/Cameras'
 import Playback from './pages/Playback'
 import Settings from './pages/Settings'
 import CameraDetail from './pages/CameraDetail'
+import PresenceDetection from './pages/PresenceDetection'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
             <li><Link to="/">Dashboard</Link></li>
             <li><Link to="/cameras">Cameras</Link></li>
             <li><Link to="/playback">Playback</Link></li>
+            <li><Link to="/presence">Presence</Link></li>
             <li><Link to="/settings">Settings</Link></li>
           </ul>
         </nav>
@@ -24,6 +26,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/playback" element={<Playback />} />
+            <Route path="/presence" element={<PresenceDetection />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/camera/:id" element={<CameraDetail />} />
           </Routes>
